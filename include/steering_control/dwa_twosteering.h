@@ -5,12 +5,12 @@
 #include <base_local_planner/odometry_helper_ros.h>
 #include <std_msgs/Float64.h>
 
-class DWABicycle : public nav_core::BaseLocalPlanner
+class DWATwoSteering : public nav_core::BaseLocalPlanner
 {
 public:
 
   // mandatory interface from BaseLocalPlanner
-  DWABicycle() : odom("odom") {}
+  DWATwoSteering() : odom("odom") {}
   void initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap);
   bool computeVelocityCommands(geometry_msgs::Twist& cmd_vel);
   inline bool isGoalReached()
@@ -20,7 +20,8 @@ public:
   bool setPlan(const std::vector<geometry_msgs::PoseStamped>& plan);
 
   //wheel orientation
-  double beta;
+  double beta1;
+  double beta2;
 
 
 private:
@@ -42,8 +43,8 @@ private:
   geometry_msgs::PoseStamped local_pose;
   std::vector<geometry_msgs::PoseStamped> global_plan, local_plan;
   bool updateLocalPlan();
-  ros::Publisher local_plan_pub, traj_pub, beta_dot_pub;
-  ros::Subscriber beta_sub;
+  ros::Publisher local_plan_pub, traj_pub, beta1_dot_pub, beta2_dot_pub;
+  ros::Subscriber beta1_sub, beta2_sub;
 
   // geometry
   tf2_ros::Buffer *tf;

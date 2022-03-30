@@ -28,9 +28,9 @@ void DWABicycle::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::C
   dbeta_max = priv.param("beta_max", 0.5);
 
   simtime = priv.param("simtime", 2.);
-  time_samples = priv.param("simtime", 40);
-  v_samples = priv.param("simtime", 10);
-  beta_samples = priv.param("simtime", 21);
+  time_samples = priv.param("time_samples", 40);
+  v_samples = priv.param("v_samples", 10);
+  beta_samples = priv.param("beta_samples", 21);
 
   Length = priv.param("length", 0.15);
 
@@ -66,15 +66,16 @@ bool DWABicycle::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
 
   //parameters to tune
   double alpha_obst = 0.3; //effect of the obstacles on the grade
-  double alpha_goal = 6.; //effect of proximity to the goal
+  double alpha_goal = 55.; //effect of proximity to the goal
 
   //actual command and the max grade
-  double v_command;
-  double dbeta_command;
+  double v_command = 1.;
+  double dbeta_command = 0.;
   auto max_grade(-100000000.);
 
 
   //table sampling the velocity space (v,beta) and associating each pair with a grade
+
 
   for (int i=0 ; i<v_samples; i++)
   {
@@ -92,17 +93,23 @@ bool DWABicycle::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
               current_theta = 2*atan2(current_pose.pose.orientation.w,sqrt(pow(current_pose.pose.orientation.x,2)
                                                                            +pow(current_pose.pose.orientation.y,2)
                                                                            +pow(current_pose.pose.orientation.z,2)));
+              //we then increment all the variables debscribing the state of the robot after a time dt.
               current_pose.pose.position.x += dt*v*(cos(current_theta)*cos(current_beta)-
                                                     0.5*sin(current_theta)*sin(current_beta));
               current_pose.pose.position.y += dt*v*(sin(current_theta)*cos(current_beta)+
                                                     0.5*cos(current_theta)*sin(current_beta));
-              current_theta += dt*v*sin(beta)/Length;
+              current_theta += dt*v*sin(current_beta)/Length;
               current_pose.pose.orientation.x = 0;
               current_pose.pose.orientation.y = 0;
               current_pose.pose.orientation.z = sin(current_theta/2);
               current_pose.pose.orientation.w = cos(current_theta/2);
               current_beta = std::clamp(current_beta+dt*dbeta,-beta_max, beta_max);
-              grade += -alpha_obst*(costmap->getCostmap()->getCost(current_pose.pose.position.x,current_pose.pose.position.y));
+              unsigned int x_map;
+              unsigned int y_map;
+              if(costmap->getCostmap()->worldToMap(current_pose.pose.position.x, current_pose.pose.position.y, x_map,y_map))
+              {
+                  grade += -alpha_obst*(costmap->getCostmap()->getCost(x_map,y_map));
+              }
           }
           grade += alpha_goal/(1+pow(goal.position.x-current_pose.pose.position.x,2)
                                +pow(goal.position.y-current_pose.pose.position.y,2)
@@ -133,7 +140,7 @@ bool DWABicycle::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   auto theta(cmd_vel.angular.z);
   cmd_vel.linear.x = (cos(theta)*cos(beta)-sin(theta)*sin(beta)/2)*v_command;
   cmd_vel.linear.y = (sin(theta)*cos(beta)+cos(theta)*sin(beta)/2)*v_command;
-  cmd_vel.angular.z = (sin(beta)*Length)*v_command;
+  cmd_vel.angular.z = (sin(beta)/Length)*v_command;
   std_msgs::Float64 beta_dot;
   beta_dot.data = dbeta_command;
   beta_dot_pub.publish(beta_dot);
