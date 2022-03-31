@@ -13,7 +13,7 @@ dbeta_max: 0.2
 sim_time: 2.
 time_samples: 40
 v_samples: 10
-beta_samples: 21
+beta_samples: 51
 
 # Geometry
 length: 0.15

@@ -39,8 +39,8 @@ void DWATwoSteering::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2
 
   Length = priv.param("length", 0.15);
 
-  local_plan_pub = priv.advertise<nav_msgs::Path>("global_plan", 10);
-  traj_pub = priv.advertise<nav_msgs::Path>("local_plan", 10);
+  local_plan_pub = priv.advertise<nav_msgs::Path>("global_plan", 100);
+  traj_pub = priv.advertise<nav_msgs::Path>("local_plan", 100);
   beta1_dot_pub = priv.advertise<std_msgs::Float64>("beta1_dot",100);
   beta1_sub = priv.subscribe("beta1",100,beta1_callback);
   beta2_dot_pub = priv.advertise<std_msgs::Float64>("beta2_dot",100);
@@ -72,21 +72,23 @@ bool DWATwoSteering::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   double delta_theta = 0;
 
   //parameters to tune
-  double alpha_obst = 0.3; //effect of the obstacles on the grade
-  double alpha_goal = 6.; //effect of proximity to the goal
+  double alpha_obst = 5.; //effect of the obstacles on the grade
+  double alpha_goal = 55.; //effect of proximity to the goal
+  double alpha_linear_dist_to_path = 7/time_samples; //effects of path following
+  double alpha_angular_dist_to_path = 10/time_samples;
 
   //actual command and the max grade
-  double v_command;
-  double dbeta1_command;
+  double v_command=1;
+  double dbeta1_command=0;
   double dbeta2_command;
-  auto max_grade(-100000000.);
+  auto min_grade(std::numeric_limits<double>::max());
 
 
   //table sampling the velocity space (v,beta) and associating each pair with a grade
 
   for (int i=0 ; i<v_samples; i++)
   {
-      for (int j=0 ; i<beta_samples; j++)
+      for (int j=0 ; j<beta_samples; j++)
       {
           for (int l=0; l<beta_samples; l++)
           {
@@ -101,9 +103,8 @@ bool DWATwoSteering::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
               //grade for the trajectory
               double grade = 0;
               for (int k=0; k<time_samples; k++){
-                  current_theta = 2*atan2(current_pose.pose.orientation.w,sqrt(pow(current_pose.pose.orientation.x,2)
-                                                                               +pow(current_pose.pose.orientation.y,2)
-                                                                               +pow(current_pose.pose.orientation.z,2)));
+                  current_theta = 2*atan2(sqrt(pow(current_pose.pose.orientation.x,2)+pow(current_pose.pose.orientation.y,2)
+                                               +pow(current_pose.pose.orientation.z,2)), current_pose.pose.orientation.w);
                   //we then increment all the variables debscribing the state of the robot after a time dt.
                   current_pose.pose.position.x += dt*v*(cos(current_theta)*cos(current_beta1)*cos(current_beta2)-
                                                         0.5*sin(current_theta)*sin(current_beta1+current_beta2));
@@ -116,18 +117,40 @@ bool DWATwoSteering::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
                   current_pose.pose.orientation.w = cos(current_theta/2);
                   current_beta1 = std::clamp(current_beta1+dt*dbeta1,-beta_max, beta_max);
                   current_beta2 = std::clamp(current_beta2+dt*dbeta2,-beta_max, beta_max);
-                  grade += -alpha_obst*(costmap->getCostmap()->getCost(current_pose.pose.position.x,current_pose.pose.position.y));
+                  unsigned int x_map;
+                  unsigned int y_map;
+                  if(costmap->getCostmap()->worldToMap(current_pose.pose.position.x, current_pose.pose.position.y, x_map,y_map))
+                  {
+                      grade += alpha_obst*(costmap->getCostmap()->getCost(x_map,y_map));
+                  }
+
+                  double dist_to_traj = std::numeric_limits<double>::max();
+                  double ang_dist_to_traj = std::numeric_limits<double>::max();
+                  double current_dist_to_traj;
+                  for(geometry_msgs::PoseStamped pose_traj : local_plan)
+                  {
+                      current_dist_to_traj = sqrt(pow(pose_traj.pose.position.x-current_pose.pose.position.x,2)
+                                          +pow(pose_traj.pose.position.y-current_pose.pose.position.y,2));
+                      if(current_dist_to_traj < dist_to_traj)
+                      {
+                          dist_to_traj = current_dist_to_traj;
+                          ang_dist_to_traj = abs(2*atan2(current_pose.pose.orientation.z, current_pose.pose.orientation.w)
+                                                 -2*atan2(pose_traj.pose.orientation.z, pose_traj.pose.orientation.w));
+                      }
+                  }
+                  grade += alpha_linear_dist_to_path*dist_to_traj + alpha_angular_dist_to_path*ang_dist_to_traj;
+
               }
-              grade += alpha_goal/(1+pow(goal.position.x-current_pose.pose.position.x,2)
+              grade += alpha_goal*(pow(goal.position.x-current_pose.pose.position.x,2)
                                    +pow(goal.position.y-current_pose.pose.position.y,2)
                                    +pow(goal.orientation.w-current_pose.pose.orientation.w,2));
 
               //we check if this is the best trajectory yet
-              if(grade > max_grade){
+              if(grade < min_grade){
                   v_command = v;
                   dbeta1_command = dbeta1;
                   dbeta2_command = dbeta2;
-                  max_grade = grade;
+                  min_grade = grade;
 
               }
           }

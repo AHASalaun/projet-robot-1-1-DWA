@@ -20,7 +20,7 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "beta2");
 
   ros::NodeHandle n;
-  double beta2 = 2;
+  double beta2 = 0;
   std_msgs::Float64 beta2_pub;
   double freq = 100;
   double dt = 1/freq;
